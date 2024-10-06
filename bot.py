@@ -5,8 +5,17 @@ from bs4 import BeautifulSoup
 import requests
 import json
 
-def scrape_books(keyword):
+last_keyword = ""
+
+def scrape_books(keyword,sort_by_rate=False,sort_by_price=False):
+    global last_keyword
+    global url
     url = f"https://www.naiin.com/search-result?title={keyword}"
+    if sort_by_rate:
+        url += "&sortBy=rate"
+    elif sort_by_price:
+        url += "&sortBy=price"
+    last_keyword = keyword 
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
     
@@ -168,8 +177,36 @@ def compute_response(sentence):
         except Exception as e:
             print(f"Error while fetching or processing books: {e}")
             return TextSendMessage(text="เกิดข้อผิดพลาดในการดึงข้อมูล โปรดลองใหม่อีกครั้ง")
+    
+    # เช็คว่าผู้ใช้พิมพ์ "เรียงตามคะแนน" ไหม
+    elif sentence.startswith("เรียงตามคะแนน"):
+        try:
+            books = scrape_books(last_keyword, sort_by_rate=True)  # ดึงข้อมูลหนังสือโดยเรียงตามคะแนน
+            if books:
+                # ถ้าพบหนังสือ สร้าง Flex Message
+                flex_message = create_flex_message(books)
+                # ส่ง Flex Message กลับ
+                return flex_message
+            else:
+                return TextSendMessage(text="ไม่พบข้อมูลหนังสือที่ค้นหา")
+        except Exception as e:
+            print(f"Error while fetching or processing books: {e}")
+            return TextSendMessage(text="เกิดข้อผิดพลาดในการดึงข้อมูล โปรดลองใหม่อีกครั้ง")
+    elif sentence.startswith("เรียงตามราคา"):
+        try:
+            books = scrape_books(last_keyword, sort_by_price=True)  # ดึงข้อมูลหนังสือโดยเรียงตามราคา
+            if books:
+                flex_message = create_flex_message(books)
+                return flex_message
+            else:
+                return TextSendMessage(text="ไม่พบข้อมูลหนังสือที่ค้นหา")
+        except Exception as e:
+            print(f"Error while fetching or processing books: {e}")
+            return TextSendMessage(text="เกิดข้อผิดพลาดในการดึงข้อมูล โปรดลองใหม่อีกครั้ง")
+
     else:
         return TextSendMessage(text="ฟังก์ชันนี้ยังไม่รองรับการค้นหาอื่น ๆ")
+    
 
 
 
@@ -192,7 +229,7 @@ def linebot():
         tk = json_data['events'][0]['replyToken']
         response_msg = compute_response(msg)
         line_bot_api.reply_message(tk, response_msg)
-        print(msg, tk)
+        print(msg, tk,last_keyword,url)
     except Exception as e:
         print(body)
         print(f"Error: {e}")
