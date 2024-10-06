@@ -70,7 +70,6 @@ def create_faiss_index(phrases):
 
 # สร้างประโยคตัวอย่างสำหรับการค้นหา intent
 intent_phrases = [
-    "ค้นหาหนังสือ",
     "เรียงตามคะแนน",
     "เรียงตามราคา"
 ]
@@ -83,7 +82,7 @@ def faiss_search(sentence):
     faiss.normalize_L2(_vector)
     distances, ann = index.search(_vector, k=1)
 
-    distance_threshold = 0.4
+    distance_threshold = 0.6
     if distances[0][0] > distance_threshold:
         return 'unknown'
     else:
@@ -94,7 +93,7 @@ def create_quick_reply():
     return QuickReply(
         items=[
             QuickReplyButton(
-                action=MessageAction(label="เรียงตามสินค้า", text="เรียงตามราคา")
+                action=MessageAction(label="เรียงตามราคา", text="เรียงตามราคา")
             ),
             QuickReplyButton(
                 action=MessageAction(label="เรียงตามคะแนน", text="เรียงตามคะแนน")
@@ -237,7 +236,7 @@ def create_flex_message(books):
 def compute_response(sentence, user_id):
     intent = faiss_search(sentence)
 
-    if intent == "ค้นหาหนังสือ":
+    if sentence.startswith("ค้นหาหนังสือ"):
         keyword = sentence.replace("ค้นหาหนังสือ", "").strip()
         books, scraped_text = scrape_books(keyword)
         if books:
