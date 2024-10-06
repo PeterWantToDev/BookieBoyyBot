@@ -1,9 +1,13 @@
 from flask import Flask, request, jsonify
 from linebot import LineBotApi, WebhookHandler
-from linebot.models import MessageEvent, TextMessage, TextSendMessage, FlexSendMessage, BubbleContainer, CarouselContainer
+from linebot.models import MessageEvent, TextMessage, TextSendMessage, FlexSendMessage, BubbleContainer, CarouselContainer,QuickReply, QuickReplyButton, MessageAction
 from bs4 import BeautifulSoup
 import requests
 import json
+from neo4j import GraphDatabase
+
+URI = "neo4j://localhost:7687"
+AUTH = ("neo4j", "ponkai517")
 
 last_keyword = ""
 
@@ -62,7 +66,17 @@ def scrape_books(keyword,sort_by_rate=False,sort_by_price=False):
     
     return books
 
-
+def create_quick_reply():
+    return QuickReply(
+        items=[
+            QuickReplyButton(
+                action=MessageAction(label="เรียงตามสินค้า", text="เรียงตามราคา")
+            ),
+            QuickReplyButton(
+                action=MessageAction(label="เรียงตามคะแนน", text="เรียงตามคะแนน")
+            )
+        ]
+    )
 
 # ฟังก์ชันสำหรับสร้าง Flex Message
 def create_flex_message(books):
@@ -160,7 +174,6 @@ def create_flex_message(books):
 
 
 
-# ฟังก์ชันสำหรับคำนวณการตอบสนอง
 def compute_response(sentence):
     # เช็คว่าผู้ใช้พิมพ์ "ค้นหาหนังสือ" ไหม
     if sentence.startswith("ค้นหาหนังสือ"):
@@ -168,8 +181,12 @@ def compute_response(sentence):
         try:
             books = scrape_books(keyword)  # ดึงข้อมูลหนังสือ
             if books:
-                # ถ้าพบหนังสือ สร้าง Flex Message
+                # สร้าง Flex Message
                 flex_message = create_flex_message(books)
+                
+                # เพิ่ม Quick Reply ไปใน Flex Message
+                flex_message.quick_reply = create_quick_reply()
+                
                 # ส่ง Flex Message กลับ
                 return flex_message
             else:
@@ -183,8 +200,12 @@ def compute_response(sentence):
         try:
             books = scrape_books(last_keyword, sort_by_rate=True)  # ดึงข้อมูลหนังสือโดยเรียงตามคะแนน
             if books:
-                # ถ้าพบหนังสือ สร้าง Flex Message
+                # สร้าง Flex Message
                 flex_message = create_flex_message(books)
+                
+                # เพิ่ม Quick Reply ไปใน Flex Message
+                flex_message.quick_reply = create_quick_reply()
+                
                 # ส่ง Flex Message กลับ
                 return flex_message
             else:
@@ -192,11 +213,19 @@ def compute_response(sentence):
         except Exception as e:
             print(f"Error while fetching or processing books: {e}")
             return TextSendMessage(text="เกิดข้อผิดพลาดในการดึงข้อมูล โปรดลองใหม่อีกครั้ง")
+    
+    # เช็คว่าผู้ใช้พิมพ์ "เรียงตามราคา" ไหม
     elif sentence.startswith("เรียงตามราคา"):
         try:
             books = scrape_books(last_keyword, sort_by_price=True)  # ดึงข้อมูลหนังสือโดยเรียงตามราคา
             if books:
+                # สร้าง Flex Message
                 flex_message = create_flex_message(books)
+                
+                # เพิ่ม Quick Reply ไปใน Flex Message
+                flex_message.quick_reply = create_quick_reply()
+                
+                # ส่ง Flex Message กลับ
                 return flex_message
             else:
                 return TextSendMessage(text="ไม่พบข้อมูลหนังสือที่ค้นหา")
@@ -206,7 +235,7 @@ def compute_response(sentence):
 
     else:
         return TextSendMessage(text="ฟังก์ชันนี้ยังไม่รองรับการค้นหาอื่น ๆ")
-    
+
 
 
 
