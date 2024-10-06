@@ -29,13 +29,13 @@ def scrape_books(keyword):
         product_item_div = book_item.parent  # ค้นหา parent ของ item-details ซึ่งมีแอตทริบิวต์ data-price
         price = product_item_div.get('data-price', 'ไม่ระบุ')  # ดึงราคาจากแอตทริบิวต์ data-price
         
+         
         # ดึงลิ้งรูปภาพ
         img_tag = book_item.parent.select_one('.item-img-block img')
         img_url = img_tag.get('data-src') or img_tag.get('src') if img_tag else "https://drive.google.com/uc?export=view&id=13ihm2R69rRvt2tEHWsYbefED9CGP39vq"
 
         # ตรวจสอบว่า img_url มีรูปแบบ http:// หรือ https:// หรือไม่
         if not (img_url.startswith('http://') or img_url.startswith('https://')):
-        # หากไม่มีรูปภาพให้ใช้ลิงก์ Google Drive ที่แปลงแล้วเป็นรูปภาพเริ่มต้น
             img_url = "https://drive.google.com/uc?export=view&id=13ihm2R69rRvt2tEHWsYbefED9CGP39vq"
 
         # ดึงคะแนนรีวิว (rating)
@@ -60,15 +60,16 @@ def create_flex_message(books):
     bubbles = []
     
     for book in books:
-        bubble = BubbleContainer(
-            hero={
+        bubble = {
+            "type": "bubble",
+            "hero": {
                 "type": "image",
                 "url": book['img_url'],
                 "size": "full",
                 "aspectRatio": "20:13",
                 "aspectMode": "cover"
             },
-            body={
+            "body": {
                 "type": "box",
                 "layout": "vertical",
                 "contents": [
@@ -85,7 +86,7 @@ def create_flex_message(books):
                         "contents": [
                             {
                                 "type": "text",
-                                "text": book['author'],
+                                "text": f"ผู้แต่ง: {book['author']}",
                                 "size": "sm",
                                 "color": "#999999",
                                 "wrap": True
@@ -98,7 +99,7 @@ def create_flex_message(books):
                         "contents": [
                             {
                                 "type": "text",
-                                "text": book['price'],
+                                "text": f"ราคา: {book['price']}",
                                 "weight": "bold",
                                 "size": "md",
                                 "color": "#1DB446",
@@ -121,7 +122,7 @@ def create_flex_message(books):
                     }
                 ]
             },
-            footer={
+            "footer": {
                 "type": "box",
                 "layout": "vertical",
                 "contents": [
@@ -136,14 +137,18 @@ def create_flex_message(books):
                     }
                 ]
             }
-        )
+        }
         bubbles.append(bubble)
     
     # สร้าง Carousel จาก Bubble ทั้งหมด
-    carousel = CarouselContainer(contents=bubbles)
+    carousel = {
+        "type": "carousel",
+        "contents": bubbles
+    }
     flex_message = FlexSendMessage(alt_text="หนังสือที่ค้นพบ", contents=carousel)
     
     return flex_message
+
 
 
 # ฟังก์ชันสำหรับคำนวณการตอบสนอง
@@ -154,11 +159,10 @@ def compute_response(sentence):
         try:
             books = scrape_books(keyword)  # ดึงข้อมูลหนังสือ
             if books:
-                # สร้างข้อความธรรมดาจากผลการค้นหา
-                response_message = "นี่คือผลการค้นหาหนังสือจากร้านนายอินทร์ครับ:\n"
-                for book in books:
-                    response_message += f"ชื่อหนังสือ: {book['title']}\nผู้แต่ง: {book['author']}\nราคา: {book['price']}\nลิงค์: {book['product_url']}\n{book['img_url']}\n"
-                return TextSendMessage(text=response_message)
+                # ถ้าพบหนังสือ สร้าง Flex Message
+                flex_message = create_flex_message(books)
+                # ส่ง Flex Message กลับ
+                return flex_message
             else:
                 return TextSendMessage(text="ไม่พบข้อมูลหนังสือที่ค้นหา")
         except Exception as e:
@@ -166,6 +170,7 @@ def compute_response(sentence):
             return TextSendMessage(text="เกิดข้อผิดพลาดในการดึงข้อมูล โปรดลองใหม่อีกครั้ง")
     else:
         return TextSendMessage(text="ฟังก์ชันนี้ยังไม่รองรับการค้นหาอื่น ๆ")
+
 
 
 
