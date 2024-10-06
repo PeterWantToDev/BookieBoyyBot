@@ -1,17 +1,64 @@
 from flask import Flask, request, jsonify
 from linebot import LineBotApi, WebhookHandler
-from linebot.models import MessageEvent, TextMessage, TextSendMessage, FlexSendMessage, BubbleContainer, CarouselContainer,QuickReply, QuickReplyButton, MessageAction
+from linebot.models import MessageEvent, TextMessage, TextSendMessage, FlexSendMessage, BubbleContainer, CarouselContainer, QuickReply, QuickReplyButton, MessageAction
 from bs4 import BeautifulSoup
 import requests
 import json
-from neo4j import GraphDatabase
+from sentence_transformers import SentenceTransformer
+import faiss
+import numpy as np
 
-URI = "neo4j://localhost:7687"
-AUTH = ("neo4j", "ponkai517")
+# สร้างโมเดล SentenceTransformer
+encoder = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
+# การเตรียม faiss index เพื่อค้นหาความใกล้เคียง
+def create_faiss_index(phrases):
+    vectors = encoder.encode(phrases)
+    vector_dimension = vectors.shape[1]
+    index = faiss.IndexFlatL2(vector_dimension)
+    faiss.normalize_L2(vectors)
+    index.add(vectors)
+    return index, vectors
+
+# สร้างประโยคตัวอย่างสำหรับการค้นหา intent
+intent_phrases = [
+    "ค้นหาหนังสือ",
+    "เรียงตามคะแนน",
+    "เรียงตามราคา"
+]
+index, vectors = create_faiss_index(intent_phrases)
+
+# ค้นหาข้อความที่ใกล้เคียงที่สุดด้วย FAISS
+def faiss_search(sentence):
+    search_vector = encoder.encode(sentence)
+    _vector = np.array([search_vector])
+    faiss.normalize_L2(_vector)
+    distances, ann = index.search(_vector, k=1)  # k=1 เพราะต้องการแค่ข้อความที่ใกล้เคียงที่สุด
+
+    # ตั้งค่า threshold สำหรับ distance
+    distance_threshold = 0.4
+    if distances[0][0] > distance_threshold:
+        return 'unknown'  # ถ้าไม่มีข้อความใกล้เคียง
+    else:
+        return intent_phrases[ann[0][0]]  # คืนค่าประโยคที่ใกล้เคียงที่สุด
+
+# สร้าง Quick Reply
+def create_quick_reply():
+    return QuickReply(
+        items=[
+            QuickReplyButton(
+                action=MessageAction(label="เรียงตามสินค้า", text="เรียงตามราคา")
+            ),
+            QuickReplyButton(
+                action=MessageAction(label="เรียงตามคะแนน", text="เรียงตามคะแนน")
+            )
+        ]
+    )
+
+# ฟังก์ชันสำหรับการ scrape ข้อมูลหนังสือ
 last_keyword = ""
 
-def scrape_books(keyword,sort_by_rate=False,sort_by_price=False):
+def scrape_books(keyword, sort_by_rate=False, sort_by_price=False):
     global last_keyword
     global url
     url = f"https://www.naiin.com/search-result?title={keyword}"
@@ -19,37 +66,28 @@ def scrape_books(keyword,sort_by_rate=False,sort_by_price=False):
         url += "&sortBy=rate"
     elif sort_by_price:
         url += "&sortBy=price"
-    last_keyword = keyword 
+    last_keyword = keyword
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
-    
+
     books = []
     for book_item in soup.select('.item-details')[:5]:  # ดึงข้อมูลหนังสือ 5 เล่มแรก
-        
-        # พิมพ์โครงสร้างของแต่ละ book_item เพื่อดูว่ามีอะไรผิดปกติ
-        print(book_item.prettify())  # พิมพ์โครงสร้าง HTML ของหนังสือแต่ละเล่ม
-        
         # ดึงชื่อหนังสือ
         title_tag = book_item.select_one('.txt-normal a')
         title = title_tag.get_text(strip=True) if title_tag else "ไม่มีชื่อหนังสือ"
         product_url = title_tag['href'] if title_tag else "ไม่มี URL สินค้า"
-        
+
         # ดึงชื่อผู้แต่ง
         author_tag = book_item.select_one('.txt-light a')
         author = author_tag.get_text(strip=True) if author_tag else "ไม่มีผู้แต่ง"
-        
+
         # ดึงราคา
         product_item_div = book_item.parent  # ค้นหา parent ของ item-details ซึ่งมีแอตทริบิวต์ data-price
         price = product_item_div.get('data-price', 'ไม่ระบุ')  # ดึงราคาจากแอตทริบิวต์ data-price
-        
-         
+
         # ดึงลิ้งรูปภาพ
         img_tag = book_item.parent.select_one('.item-img-block img')
         img_url = img_tag.get('data-src') or img_tag.get('src') if img_tag else "https://drive.google.com/uc?export=view&id=13ihm2R69rRvt2tEHWsYbefED9CGP39vq"
-
-        # ตรวจสอบว่า img_url มีรูปแบบ http:// หรือ https:// หรือไม่
-        if not (img_url.startswith('http://') or img_url.startswith('https://')):
-            img_url = "https://drive.google.com/uc?export=view&id=13ihm2R69rRvt2tEHWsYbefED9CGP39vq"
 
         # ดึงคะแนนรีวิว (rating)
         rating_tag = book_item.find('span', class_='vote-scores')
@@ -66,22 +104,9 @@ def scrape_books(keyword,sort_by_rate=False,sort_by_price=False):
     
     return books
 
-def create_quick_reply():
-    return QuickReply(
-        items=[
-            QuickReplyButton(
-                action=MessageAction(label="เรียงตามสินค้า", text="เรียงตามราคา")
-            ),
-            QuickReplyButton(
-                action=MessageAction(label="เรียงตามคะแนน", text="เรียงตามคะแนน")
-            )
-        ]
-    )
-
 # ฟังก์ชันสำหรับสร้าง Flex Message
 def create_flex_message(books):
     bubbles = []
-    
     for book in books:
         bubble = {
             "type": "bubble",
@@ -172,73 +197,40 @@ def create_flex_message(books):
     
     return flex_message
 
-
-
+# ฟังก์ชันคำนวณการตอบสนอง
 def compute_response(sentence):
-    # เช็คว่าผู้ใช้พิมพ์ "ค้นหาหนังสือ" ไหม
-    if sentence.startswith("ค้นหาหนังสือ"):
+    intent = faiss_search(sentence)
+
+    if intent == "ค้นหาหนังสือ":
         keyword = sentence.replace("ค้นหาหนังสือ", "").strip()
-        try:
-            books = scrape_books(keyword)  # ดึงข้อมูลหนังสือ
-            if books:
-                # สร้าง Flex Message
-                flex_message = create_flex_message(books)
-                
-                # เพิ่ม Quick Reply ไปใน Flex Message
-                flex_message.quick_reply = create_quick_reply()
-                
-                # ส่ง Flex Message กลับ
-                return flex_message
-            else:
-                return TextSendMessage(text="ไม่พบข้อมูลหนังสือที่ค้นหา")
-        except Exception as e:
-            print(f"Error while fetching or processing books: {e}")
-            return TextSendMessage(text="เกิดข้อผิดพลาดในการดึงข้อมูล โปรดลองใหม่อีกครั้ง")
-    
-    # เช็คว่าผู้ใช้พิมพ์ "เรียงตามคะแนน" ไหม
-    elif sentence.startswith("เรียงตามคะแนน"):
-        try:
-            books = scrape_books(last_keyword, sort_by_rate=True)  # ดึงข้อมูลหนังสือโดยเรียงตามคะแนน
-            if books:
-                # สร้าง Flex Message
-                flex_message = create_flex_message(books)
-                
-                # เพิ่ม Quick Reply ไปใน Flex Message
-                flex_message.quick_reply = create_quick_reply()
-                
-                # ส่ง Flex Message กลับ
-                return flex_message
-            else:
-                return TextSendMessage(text="ไม่พบข้อมูลหนังสือที่ค้นหา")
-        except Exception as e:
-            print(f"Error while fetching or processing books: {e}")
-            return TextSendMessage(text="เกิดข้อผิดพลาดในการดึงข้อมูล โปรดลองใหม่อีกครั้ง")
-    
-    # เช็คว่าผู้ใช้พิมพ์ "เรียงตามราคา" ไหม
-    elif sentence.startswith("เรียงตามราคา"):
-        try:
-            books = scrape_books(last_keyword, sort_by_price=True)  # ดึงข้อมูลหนังสือโดยเรียงตามราคา
-            if books:
-                # สร้าง Flex Message
-                flex_message = create_flex_message(books)
-                
-                # เพิ่ม Quick Reply ไปใน Flex Message
-                flex_message.quick_reply = create_quick_reply()
-                
-                # ส่ง Flex Message กลับ
-                return flex_message
-            else:
-                return TextSendMessage(text="ไม่พบข้อมูลหนังสือที่ค้นหา")
-        except Exception as e:
-            print(f"Error while fetching or processing books: {e}")
-            return TextSendMessage(text="เกิดข้อผิดพลาดในการดึงข้อมูล โปรดลองใหม่อีกครั้ง")
+        books = scrape_books(keyword)
+        if books:
+            flex_message = create_flex_message(books)
+            flex_message.quick_reply = create_quick_reply()
+            return flex_message
+        else:
+            return TextSendMessage(text="ไม่พบข้อมูลหนังสือที่ค้นหา")
 
+    elif intent == "เรียงตามคะแนน":
+        books = scrape_books(last_keyword, sort_by_rate=True)
+        if books:
+            flex_message = create_flex_message(books)
+            flex_message.quick_reply = create_quick_reply()
+            return flex_message
+        else:
+            return TextSendMessage(text="ไม่พบข้อมูลหนังสือที่ค้นหา")
+
+    elif intent == "เรียงตามราคา":
+        books = scrape_books(last_keyword, sort_by_price=True)
+        if books:
+            flex_message = create_flex_message(books)
+            flex_message.quick_reply = create_quick_reply()
+            return flex_message
+        else:
+            return TextSendMessage(text="ไม่พบข้อมูลหนังสือที่ค้นหา")
+    
     else:
-        return TextSendMessage(text="ฟังก์ชันนี้ยังไม่รองรับการค้นหาอื่น ๆ")
-
-
-
-
+        return TextSendMessage(text="ขอโทษครับ ผมไม่เข้าใจคำถามนี้")
 
 # เชื่อมต่อกับ Line API
 app = Flask(__name__)
