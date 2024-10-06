@@ -7,8 +7,56 @@ import json
 from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
+from neo4j import GraphDatabase
+from datetime import datetime
 
-# สร้างโมเดล SentenceTransformer
+# ตั้งค่าการเชื่อมต่อกับ Neo4j
+URI = "neo4j://localhost:7687"
+AUTH = ("neo4j", "ponkai517")
+
+# ฟังก์ชันสำหรับรันคำสั่ง Neo4j
+def run_query(query, parameters=None):
+    with GraphDatabase.driver(URI, auth=AUTH) as driver:
+        driver.verify_connectivity()
+        with driver.session() as session:
+            result = session.run(query, parameters)
+            return [record for record in result]
+    driver.close()
+
+# ฟังก์ชันบันทึกประวัติการสนทนาและ last_keyword ใน Neo4j พร้อมบันทึกผล scrape
+def store_chat_history_and_keyword(user_id, user_message, bot_response, last_keyword, scraped_text=None):
+    timestamp = datetime.now().isoformat()  # สร้าง timestamp
+    query = '''
+    MERGE (u:User {user_id: $user_id})
+    SET u.last_keyword = $last_keyword
+    CREATE (m:Chat {user_message: $user_message, timestamp: $timestamp})
+    CREATE (c:bot_response {bot_response: $bot_response, scraped_text: $scraped_text, timestamp: $timestamp})
+    MERGE (u)-[:question]->(m)-[:answer]->(c)
+    '''
+    parameters = {
+        'user_id': user_id,
+        'user_message': user_message,
+        'bot_response': bot_response,
+        'scraped_text': scraped_text,
+        'last_keyword': last_keyword,
+        'timestamp': timestamp
+    }
+    run_query(query, parameters)
+
+# ฟังก์ชันดึงค่า last_keyword จาก Neo4j
+def get_last_keyword(user_id):
+    query = '''
+    MATCH (u:User {user_id: $user_id})
+    RETURN u.last_keyword AS last_keyword
+    '''
+    parameters = {'user_id': user_id}
+    result = run_query(query, parameters)
+    
+    if result and result[0]['last_keyword']:
+        return result[0]['last_keyword']
+    return None
+
+# สร้างโมเดล SentenceTransformer สำหรับค้นหาความใกล้เคียง
 encoder = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
 # การเตรียม faiss index เพื่อค้นหาความใกล้เคียง
@@ -28,19 +76,18 @@ intent_phrases = [
 ]
 index, vectors = create_faiss_index(intent_phrases)
 
-# ค้นหาข้อความที่ใกล้เคียงที่สุดด้วย FAISS
+# ฟังก์ชันสำหรับค้นหาข้อความที่ใกล้เคียงที่สุดด้วย FAISS
 def faiss_search(sentence):
     search_vector = encoder.encode(sentence)
     _vector = np.array([search_vector])
     faiss.normalize_L2(_vector)
-    distances, ann = index.search(_vector, k=1)  # k=1 เพราะต้องการแค่ข้อความที่ใกล้เคียงที่สุด
+    distances, ann = index.search(_vector, k=1)
 
-    # ตั้งค่า threshold สำหรับ distance
     distance_threshold = 0.4
     if distances[0][0] > distance_threshold:
-        return 'unknown'  # ถ้าไม่มีข้อความใกล้เคียง
+        return 'unknown'
     else:
-        return intent_phrases[ann[0][0]]  # คืนค่าประโยคที่ใกล้เคียงที่สุด
+        return intent_phrases[ann[0][0]]
 
 # สร้าง Quick Reply
 def create_quick_reply():
@@ -55,41 +102,28 @@ def create_quick_reply():
         ]
     )
 
-# ฟังก์ชันสำหรับการ scrape ข้อมูลหนังสือ
-last_keyword = ""
-
+# ฟังก์ชันสำหรับการ scrape ข้อมูลหนังสือและสร้างข้อความ text
 def scrape_books(keyword, sort_by_rate=False, sort_by_price=False):
-    global last_keyword
-    global url
     url = f"https://www.naiin.com/search-result?title={keyword}"
     if sort_by_rate:
         url += "&sortBy=rate"
     elif sort_by_price:
         url += "&sortBy=price"
-    last_keyword = keyword
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
 
     books = []
-    for book_item in soup.select('.item-details')[:5]:  # ดึงข้อมูลหนังสือ 5 เล่มแรก
-        # ดึงชื่อหนังสือ
+    scraped_text = ""
+    for book_item in soup.select('.item-details')[:5]:  
         title_tag = book_item.select_one('.txt-normal a')
         title = title_tag.get_text(strip=True) if title_tag else "ไม่มีชื่อหนังสือ"
         product_url = title_tag['href'] if title_tag else "ไม่มี URL สินค้า"
-
-        # ดึงชื่อผู้แต่ง
         author_tag = book_item.select_one('.txt-light a')
         author = author_tag.get_text(strip=True) if author_tag else "ไม่มีผู้แต่ง"
-
-        # ดึงราคา
-        product_item_div = book_item.parent  # ค้นหา parent ของ item-details ซึ่งมีแอตทริบิวต์ data-price
-        price = product_item_div.get('data-price', 'ไม่ระบุ')  # ดึงราคาจากแอตทริบิวต์ data-price
-
-        # ดึงลิ้งรูปภาพ
+        product_item_div = book_item.parent  
+        price = product_item_div.get('data-price', 'ไม่ระบุ')
         img_tag = book_item.parent.select_one('.item-img-block img')
         img_url = img_tag.get('data-src') or img_tag.get('src') if img_tag else "https://drive.google.com/uc?export=view&id=13ihm2R69rRvt2tEHWsYbefED9CGP39vq"
-
-        # ดึงคะแนนรีวิว (rating)
         rating_tag = book_item.find('span', class_='vote-scores')
         rating = rating_tag.text.strip() if rating_tag and rating_tag.text else 'ไม่มีคะแนน'
 
@@ -101,8 +135,11 @@ def scrape_books(keyword, sort_by_rate=False, sort_by_price=False):
             "img_url": img_url,
             "product_url": product_url
         })
+
+        # เก็บข้อมูล text สำหรับบันทึกใน Neo4j
+        scraped_text += f"ชื่อหนังสือ: {title}\nผู้แต่ง: {author}\nราคา: {price}\nคะแนน: {rating}\n\n"
     
-    return books
+    return books, scraped_text
 
 # ฟังก์ชันสำหรับสร้าง Flex Message
 def create_flex_message(books):
@@ -188,7 +225,6 @@ def create_flex_message(books):
         }
         bubbles.append(bubble)
     
-    # สร้าง Carousel จาก Bubble ทั้งหมด
     carousel = {
         "type": "carousel",
         "contents": bubbles
@@ -198,39 +234,59 @@ def create_flex_message(books):
     return flex_message
 
 # ฟังก์ชันคำนวณการตอบสนอง
-def compute_response(sentence):
+def compute_response(sentence, user_id):
     intent = faiss_search(sentence)
 
     if intent == "ค้นหาหนังสือ":
         keyword = sentence.replace("ค้นหาหนังสือ", "").strip()
-        books = scrape_books(keyword)
+        books, scraped_text = scrape_books(keyword)
         if books:
             flex_message = create_flex_message(books)
             flex_message.quick_reply = create_quick_reply()
+            bot_response = f"พบหนังสือที่เกี่ยวกับ {keyword}"
+            store_chat_history_and_keyword(user_id, sentence, bot_response, keyword, scraped_text)
             return flex_message
         else:
-            return TextSendMessage(text="ไม่พบข้อมูลหนังสือที่ค้นหา")
+            bot_response = "ไม่พบข้อมูลหนังสือที่ค้นหา"
+            store_chat_history_and_keyword(user_id, sentence, bot_response, keyword, "")
+            return TextSendMessage(text=bot_response)
 
     elif intent == "เรียงตามคะแนน":
-        books = scrape_books(last_keyword, sort_by_rate=True)
+        last_keyword = get_last_keyword(user_id)
+        if not last_keyword:
+            return TextSendMessage(text="คุณยังไม่ได้ค้นหาหนังสือก่อนหน้า")
+        books, scraped_text = scrape_books(last_keyword, sort_by_rate=True)
         if books:
             flex_message = create_flex_message(books)
             flex_message.quick_reply = create_quick_reply()
+            bot_response = "เรียงหนังสือตามคะแนน"
+            store_chat_history_and_keyword(user_id, sentence, bot_response, last_keyword, scraped_text)
             return flex_message
         else:
-            return TextSendMessage(text="ไม่พบข้อมูลหนังสือที่ค้นหา")
+            bot_response = "ไม่พบข้อมูลหนังสือที่ค้นหา"
+            store_chat_history_and_keyword(user_id, sentence, bot_response, last_keyword, "")
+            return TextSendMessage(text=bot_response)
 
     elif intent == "เรียงตามราคา":
-        books = scrape_books(last_keyword, sort_by_price=True)
+        last_keyword = get_last_keyword(user_id)
+        if not last_keyword:
+            return TextSendMessage(text="คุณยังไม่ได้ค้นหาหนังสือก่อนหน้า")
+        books, scraped_text = scrape_books(last_keyword, sort_by_price=True)
         if books:
             flex_message = create_flex_message(books)
             flex_message.quick_reply = create_quick_reply()
+            bot_response = "เรียงหนังสือตามราคา"
+            store_chat_history_and_keyword(user_id, sentence, bot_response, last_keyword, scraped_text)
             return flex_message
         else:
-            return TextSendMessage(text="ไม่พบข้อมูลหนังสือที่ค้นหา")
+            bot_response = "ไม่พบข้อมูลหนังสือที่ค้นหา"
+            store_chat_history_and_keyword(user_id, sentence, bot_response, last_keyword, "")
+            return TextSendMessage(text=bot_response)
     
     else:
-        return TextSendMessage(text="ขอโทษครับ ผมไม่เข้าใจคำถามนี้")
+        bot_response = "ขอโทษครับ ผมไม่เข้าใจคำถามนี้"
+        store_chat_history_and_keyword(user_id, sentence, bot_response, "")
+        return TextSendMessage(text=bot_response)
 
 # เชื่อมต่อกับ Line API
 app = Flask(__name__)
@@ -248,9 +304,10 @@ def linebot():
         handler.handle(body, signature)
         msg = json_data['events'][0]['message']['text']
         tk = json_data['events'][0]['replyToken']
-        response_msg = compute_response(msg)
+        user_id = json_data['events'][0]['source']['userId']
+        response_msg = compute_response(msg, user_id)
         line_bot_api.reply_message(tk, response_msg)
-        print(msg, tk,last_keyword,url)
+        print(msg, tk)
     except Exception as e:
         print(body)
         print(f"Error: {e}")
