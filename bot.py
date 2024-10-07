@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from linebot import LineBotApi, WebhookHandler
-from linebot.models import MessageEvent, TextMessage, TextSendMessage, FlexSendMessage, BubbleContainer, CarouselContainer, QuickReply, QuickReplyButton, MessageAction
+from linebot.models import MessageEvent, TextMessage, TextSendMessage, FlexSendMessage, BubbleContainer, CarouselContainer, QuickReply, QuickReplyButton, MessageAction, URIAction
 from bs4 import BeautifulSoup
 import requests
 import json
@@ -101,6 +101,31 @@ def create_quick_reply():
         ]
     )
 
+def scrape_synopsis(book_title):
+    # สมมติว่ามีฟังก์ชันหรือระบบที่ให้ URL ของหนังสือจากชื่อ
+    book_url = get_book_url_by_title(book_title)  # ต้องทำให้แน่ใจว่ามีฟังก์ชันนี้ หรือสร้างฟังก์ชันนี้ขึ้นมา
+    
+    if not book_url:
+        return "ไม่พบ URL ของหนังสือจากชื่อที่ให้มา"
+    
+    # ส่ง request เพื่อดึงข้อมูลจาก URL
+    response = requests.get(book_url)
+    
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # ดึงข้อมูลเรื่องย่อจากแท็ก <p> แรกใน class "book-description"
+        synopsis_tag = soup.select_one('.book-decription p')
+        
+        if synopsis_tag:
+            return synopsis_tag.get_text(strip=True)
+        else:
+            return "ไม่พบเรื่องย่อ"
+    else:
+        return f"Error: ไม่สามารถเข้าถึง URL ได้ - รหัสสถานะ: {response.status_code}"
+
+
+
 # ฟังก์ชันสำหรับการ scrape ข้อมูลหนังสือและสร้างข้อความ text
 def scrape_books(keyword, sort_by_rate=False, sort_by_price=False):
     url = f"https://www.naiin.com/search-result?title={keyword}"
@@ -140,10 +165,18 @@ def scrape_books(keyword, sort_by_rate=False, sort_by_price=False):
     
     return books, scraped_text
 
-# ฟังก์ชันสำหรับสร้าง Flex Message
+# ฟังก์ชันดึง URL จากชื่อหนังสือ
+def get_book_url_by_title(book_title):
+    return book_url_map.get(book_title, None)
+
+
+book_url_map = {}
+
+# ฟังก์ชันสำหรับสร้าง Flex Message พร้อมปุ่ม "ขอเรื่องย่อ"
 def create_flex_message(books):
     bubbles = []
     for book in books:
+        book_url_map[book['title']] = book['product_url']
         bubble = {
             "type": "bubble",
             "hero": {
@@ -218,6 +251,15 @@ def create_flex_message(books):
                             "label": "ดูสินค้า",
                             "uri": book['product_url']
                         }
+                    },
+                    {
+                        "type": "button",
+                        "style": "primary",
+                        "action": {
+                            "type": "message",
+                            "label": "ขอเรื่องย่อ",
+                            "text": f"ขอเรื่องย่อ {book['title']}"
+                        }
                     }
                 ]
             }
@@ -235,6 +277,12 @@ def create_flex_message(books):
 # ฟังก์ชันคำนวณการตอบสนอง
 def compute_response(sentence, user_id):
     intent = faiss_search(sentence)
+
+    if sentence.startswith("ขอเรื่องย่อ"):
+        # Scrape the synopsis for the given URL
+        product_url = sentence.replace("ขอเรื่องย่อ", "").strip()
+        synopsis = scrape_synopsis(product_url)
+        return TextSendMessage(text=f"เรื่องย่อ: {synopsis}")
 
     if sentence.startswith("ค้นหาหนังสือ"):
         keyword = sentence.replace("ค้นหาหนังสือ", "").strip()
@@ -281,6 +329,16 @@ def compute_response(sentence, user_id):
             bot_response = "ไม่พบข้อมูลหนังสือที่ค้นหา"
             store_chat_history_and_keyword(user_id, sentence, bot_response, last_keyword, "")
             return TextSendMessage(text=bot_response)
+    elif sentence.startswith("ขอเรื่องย่อ"):
+        book_title = sentence.replace("ขอเรื่องย่อ", "").strip()  # ดึงชื่อหนังสือจากข้อความ
+        # เรียกฟังก์ชัน scrape เรื่องย่อตามชื่อหนังสือ
+        synopsis = scrape_synopsis(book_title)  
+        
+        if synopsis:
+            return TextSendMessage(text=f"เรื่องย่อของหนังสือ '{book_title}':\n\n{synopsis}")
+        else:
+            return TextSendMessage(text=f"ไม่พบเรื่องย่อของหนังสือ '{book_title}'")
+
     
     else:
         bot_response = "ขอโทษครับ ผมไม่เข้าใจคำถามนี้"
@@ -306,7 +364,7 @@ def linebot():
         user_id = json_data['events'][0]['source']['userId']
         response_msg = compute_response(msg, user_id)
         line_bot_api.reply_message(tk, response_msg)
-        print(msg, tk)
+        print(msg, tk,book_url_map)
     except Exception as e:
         print(body)
         print(f"Error: {e}")
