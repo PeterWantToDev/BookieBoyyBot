@@ -71,7 +71,10 @@ def create_faiss_index(phrases):
 # สร้างประโยคตัวอย่างสำหรับการค้นหา intent
 intent_phrases = [
     "เรียงตามคะแนน",
-    "เรียงตามราคา"
+    "เรียงตามราคา",
+    "หนังสือมาใหม่ช่วงนี้",
+    "หนังสือขายดีช่วงนี้",
+    "แนะนำหนังสือหน่อยครับ"
 ]
 index, vectors = create_faiss_index(intent_phrases)
 
@@ -82,7 +85,7 @@ def faiss_search(sentence):
     faiss.normalize_L2(_vector)
     distances, ann = index.search(_vector, k=1)
 
-    distance_threshold = 0.6
+    distance_threshold = 0.5
     if distances[0][0] > distance_threshold:
         return 'unknown'
     else:
@@ -98,6 +101,69 @@ def create_quick_reply():
             QuickReplyButton(
                 action=MessageAction(label="เรียงตามคะแนน", text="เรียงตามคะแนน")
             )
+        ]
+    )
+
+# Quick Reply ของแนะนำ
+def create_quick_reply_rec():
+    return QuickReply(
+        items=[
+            QuickReplyButton(
+                action=MessageAction(label="นิยาย", text="นิยาย")
+            ),
+            QuickReplyButton(
+                action=MessageAction(label="จิตวิทยา,การพัฒนาตัวเอง", text="จิตวิทยา,การพัฒนาตัวเอง")
+            ),
+            QuickReplyButton(
+                action=MessageAction(label="วรรณกรรม", text="วรรณกรรม")
+            ),
+            QuickReplyButton(
+                action=MessageAction(label="คอมพิวเตอร์", text="คอมพิวเตอร์")
+            ),
+        ]
+    )
+def quick_reply_n1():
+    return QuickReply(
+        items=[
+            QuickReplyButton(
+                action=MessageAction(label="แฟนตาซี", text="แฟนตาซี")
+            ),
+            QuickReplyButton(
+                action=MessageAction(label="สืบสวน", text="สืบสวน")
+            ),
+            QuickReplyButton(
+                action=MessageAction(label="ไลท์โนเวล", text="ไลท์โนเวล")
+            ),
+        ]
+    )
+def quick_reply_n2():
+    return QuickReply(
+        items=[
+            QuickReplyButton(
+                action=MessageAction(label="การพัฒนาตัวเอง", text="การพัฒนาตัวเอง")
+            ),
+            QuickReplyButton(
+                action=MessageAction(label="จิตวิทยา", text="จิตวิทยา")
+            ),
+        ]
+    )
+def quick_reply_n3():
+    return QuickReply(
+        items=[
+            QuickReplyButton(
+                action=MessageAction(label="เรื่องสั้น", text="เรื่องสั้น")
+            ),
+            QuickReplyButton(
+                action=MessageAction(label="วรรณคดีไทย", text="วรรณคดีไทย")
+            ),
+        ]
+    )
+def quick_reply_n4():
+    return QuickReply(
+        items=[
+            QuickReplyButton(
+                action=MessageAction(label="ไม่มี", text="ไม่มี")
+            ),
         ]
     )
 
@@ -164,6 +230,33 @@ def scrape_books(keyword, sort_by_rate=False, sort_by_price=False):
         scraped_text += f"ชื่อหนังสือ: {title}\nผู้แต่ง: {author}\nราคา: {price}\nคะแนน: {rating}\n\n"
     
     return books, scraped_text
+
+def scrape_fantasy_books(url):
+    # ส่ง request เพื่อดึงข้อมูลจาก URL
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    books = []
+    scraped_text = ""
+    
+    # ดึงข้อมูลหนังสือที่ต้องการ
+    for book_item in soup.select('.item-details')[:5]:  
+        title_tag = book_item.select_one('.txt-normal a')
+        title = title_tag.get_text(strip=True) if title_tag else "ไม่มีชื่อหนังสือ"
+        product_url = title_tag['href'] if title_tag else "ไม่มี URL สินค้า"
+        author_tag = book_item.select_one('.txt-light a')
+        author = author_tag.get_text(strip=True) if author_tag else "ไม่มีผู้แต่ง"
+        product_item_div = book_item.parent  
+        price = product_item_div.get('data-price', 'ไม่ระบุ')
+        rating_tag = book_item.find('span', class_='vote-scores')
+        rating = rating_tag.text.strip() if rating_tag and rating_tag.text else 'ไม่มีคะแนน'
+
+        # เก็บข้อมูลแต่ละหนังสือ
+        book_info = f"ชื่อหนังสือ: {title}\nผู้แต่ง: {author}\nราคา: {price}\nคะแนน: {rating}\nURL: {product_url}\n\n"
+        scraped_text += book_info
+    
+    # ส่งข้อมูลทั้งหมดกลับไปยังผู้ใช้
+    return scraped_text
 
 # ฟังก์ชันดึง URL จากชื่อหนังสือ
 def get_book_url_by_title(book_title):
@@ -298,6 +391,37 @@ def compute_response(sentence, user_id):
             store_chat_history_and_keyword(user_id, sentence, bot_response, keyword, "")
             return TextSendMessage(text=bot_response)
 
+    elif sentence.startswith("นิยาย"):
+        quick_reply = quick_reply_n1()
+        bot_response = "สนใจนิยายแบบไหนเป็นพิเศษครับ"
+        return TextSendMessage(text=bot_response, quick_reply=quick_reply)
+    elif sentence.startswith("นิยาย"):
+        quick_reply = quick_reply_n2()
+        bot_response = "สนใจนิยายแบบไหนเป็นพิเศษครับ"
+        return TextSendMessage(text=bot_response, quick_reply=quick_reply)
+    elif sentence.startswith("จิตวิทยา,การพัฒนาตัวเอง"):
+        quick_reply = quick_reply_n3()
+        bot_response = "สนใจนิยายแบบไหนเป็นพิเศษครับ"
+        return TextSendMessage(text=bot_response, quick_reply=quick_reply)
+    elif sentence.startswith("คอมพิวเตอร์"):
+        quick_reply = quick_reply_n4()
+        bot_response = "สนใจนิยายแบบไหนเป็นพิเศษครับ"
+        return TextSendMessage(text=bot_response, quick_reply=quick_reply)
+    
+    elif sentence.startswith("แฟนตาซี"):
+        url = "https://www.naiin.com/category?category_1_code=2&product_type_id=1&categoryLv2Code=86"
+        scraped_books = scrape_fantasy_books(url)
+        return TextSendMessage(text=scraped_books)
+    elif sentence.startswith("สืบสวน"):
+        url = "https://www.naiin.com/category?category_1_code=2&product_type_id=1&categoryLv2Code=8"
+        scraped_books = scrape_fantasy_books(url)
+        return TextSendMessage(text=scraped_books)
+    elif sentence.startswith("ไลท์โนเวล"):
+        url = "https://www.naiin.com/category?category_1_code=2&product_type_id=1&categoryLv2Code=134"
+        scraped_books = scrape_fantasy_books(url)
+        return TextSendMessage(text=scraped_books)
+
+
     elif intent == "เรียงตามคะแนน":
         last_keyword = get_last_keyword(user_id)
         if not last_keyword:
@@ -313,6 +437,22 @@ def compute_response(sentence, user_id):
             bot_response = "ไม่พบข้อมูลหนังสือที่ค้นหา"
             store_chat_history_and_keyword(user_id, sentence, bot_response, last_keyword, "")
             return TextSendMessage(text=bot_response)
+        
+    elif intent == "แนะนำหนังสือหน่อยครับ":
+        quick_reply = create_quick_reply_rec()  # สร้าง Quick Reply
+        bot_response = "เลือกหมวดหมู่ที่สนใจได้เลยครับ"
+        return TextSendMessage(text=bot_response, quick_reply=quick_reply)
+
+    
+    elif intent == "หนังสือมาใหม่ช่วงนี้":
+        url = "https://www.naiin.com/category?type_book=new_arrival&product_type_id=1"
+        scraped_books = scrape_fantasy_books(url)
+        return TextSendMessage(text=scraped_books)
+
+    elif intent == "หนังสือขายดีช่วงนี้":
+        url = "https://www.naiin.com/category?type_book=best_seller&product_type_id=1"
+        scraped_books = scrape_fantasy_books(url)
+        return TextSendMessage(text=scraped_books)
 
     elif intent == "เรียงตามราคา":
         last_keyword = get_last_keyword(user_id)
