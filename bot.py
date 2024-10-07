@@ -362,7 +362,26 @@ def create_fantasy_flex_message(books):
     
     return flex_message
 
-
+def llama_change(bot_response):
+    OLLAMA_API_URL = "http://localhost:11434/api/generate"
+    headers = {
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "supachai/llama-3-typhoon-v1.5",  
+        "prompt": f"Please rephrase the following response while keeping the meaning the same: \"{bot_response}\"",
+        "stream": False
+    }
+    
+    try:
+        response = requests.post(OLLAMA_API_URL, headers=headers, data=json.dumps(payload))
+        if response.status_code == 200:
+            response_data = response.json()
+            return response_data["response"]
+        else:
+            return "ขอโทษครับ ไม่สามารถประมวลผลได้ในขณะนี้"
+    except Exception as e:
+        return f"เกิดข้อผิดพลาด: {e}"
 
 # ฟังก์ชันดึง URL จากชื่อหนังสือ
 def get_book_url_by_title(book_title):
@@ -490,7 +509,9 @@ def compute_response(sentence, user_id):
             flex_message = create_flex_message(books)
             flex_message.quick_reply = create_quick_reply()
             bot_response = f"พบหนังสือที่เกี่ยวกับ {keyword} มีดังนี้ครับ"
+            bot_response = llama_change(bot_response)
             store_chat_history_and_keyword(user_id, sentence, bot_response, keyword, scraped_text)
+            print(bot_response)
             return [TextSendMessage(text=bot_response),flex_message]
         else:
             bot_response = "ไม่พบข้อมูลหนังสือที่ค้นหา"
@@ -501,7 +522,7 @@ def compute_response(sentence, user_id):
         quick_reply = quick_reply_n1()
         bot_response = "สนใจนิยายแบบไหนเป็นพิเศษครับ"
         return TextSendMessage(text=bot_response, quick_reply=quick_reply)
-    elif sentence.startswith("นิยาย"):
+    elif sentence.startswith("จิตวิทยา,การพัฒนาตัวเอง"):
         quick_reply = quick_reply_n2()
         bot_response = "สนใจนิยายแบบไหนเป็นพิเศษครับ"
         return TextSendMessage(text=bot_response, quick_reply=quick_reply)
@@ -523,7 +544,6 @@ def compute_response(sentence, user_id):
             return flex_message
         else:
             return TextSendMessage(text="ไม่พบข้อมูลหนังสือแฟนตาซีที่ค้นหา")
-        
     elif sentence.startswith("สืบสวน"):
         url = "https://www.naiin.com/category?category_1_code=2&product_type_id=1&categoryLv2Code=8"
         scraped_books = scrape_fantasy_books(url)
