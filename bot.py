@@ -70,6 +70,9 @@ def create_faiss_index(phrases):
 
 # สร้างประโยคตัวอย่างสำหรับการค้นหา intent
 intent_phrases = [
+    "สวัสดี",
+    "ทำอะไรได้บ้าง",
+    "ขอบคุณครับ",
     "เรียงตามคะแนน",
     "เรียงตามราคา",
     "หนังสือมาใหม่ช่วงนี้",
@@ -163,6 +166,37 @@ def quick_reply_n4():
         items=[
             QuickReplyButton(
                 action=MessageAction(label="ไม่มี", text="ไม่มี")
+            ),
+        ]
+    )
+def quick_reply_greeting():
+    return QuickReply(
+        items=[
+            QuickReplyButton(
+                action=MessageAction(label="ทำอะไรได้บ้าง", text="ทำอะไรได้บ้าง")
+            ),
+            QuickReplyButton(
+                action=MessageAction(label="แนะนำหนังสือ", text="แนะนำหนังสือ")
+            ),
+            QuickReplyButton(
+                action=MessageAction(label="หนังสือขายดี", text="หนังสือขายดี")
+            ),
+            QuickReplyButton(
+                action=MessageAction(label="หนังสือมาใหม่", text="หนังสือมาใหม่")
+            ),
+        ]
+    )
+def quick_reply_greeting2():
+    return QuickReply(
+        items=[
+            QuickReplyButton(
+                action=MessageAction(label="แนะนำหนังสือ", text="แนะนำหนังสือ")
+            ),
+            QuickReplyButton(
+                action=MessageAction(label="หนังสือขายดี", text="หนังสือขายดี")
+            ),
+            QuickReplyButton(
+                action=MessageAction(label="หนังสือมาใหม่", text="หนังสือมาใหม่")
             ),
         ]
     )
@@ -369,7 +403,7 @@ def llama_change(bot_response):
     }
     payload = {
         "model": "supachai/llama-3-typhoon-v1.5",  
-        "prompt": f"Please rephrase the following response while keeping the meaning the same: \"{bot_response}\"",
+        "prompt": f"return word that means this is  your book searching",       
         "stream": False
     }
     
@@ -563,6 +597,14 @@ def compute_response(sentence, user_id):
         else:
             return TextSendMessage(text="ไม่พบข้อมูลหนังสือแฟนตาซีที่ค้นหา")
 
+    elif intent == "สวัสดี":
+        quick_reply = quick_reply_greeting()
+        bot_response = "สวัสดีครับผมคือBookieBoyyแชทบอทที่มีความรู้ระดับคลังหนังสือ โดยผมสามารถให้ข้อมูลหนังสือจากเว็บนายอินทร์ได้"
+        return TextSendMessage(text=bot_response, quick_reply=quick_reply)
+    elif intent == "ทำอะไรได้บ้าง":
+        bot_response = "ผมสามารถให้ค้นหาหนังสือและให้ข้อมูลเบื้องต้นแก่คุณได้โดยพิม ค้นหาหนังสือตามด้วยชื่อเรื่อง นอกจากนี้ยังแนะนำหนังสือแก่คุณได้แค่บอกผมว่าต้องการให้แนะนำหนังสือ"
+        quick_reply = quick_reply_greeting2()
+        return TextSendMessage(text=bot_response, quick_reply=quick_reply)
 
     elif intent == "เรียงตามคะแนน":
         last_keyword = get_last_keyword(user_id)
@@ -635,7 +677,7 @@ def linebot():
     body = request.get_data(as_text=True)
     try:
         json_data = json.loads(body)
-        access_token = '2h5B+6TZellUgtBUJke0dQvrWsKiSxnwNPOCsOpjixABRzME0XhakcDdfeMwlyLxI/fIpCTOHLDduCINBUCGwzzi7fDSNg10MDWqn8twIhETIJBrdA8yAHHD4PWMeJvmAlOrVe+cKApTJga+C+OorQdB04t89/1O/w1cDnyilFU='  # ใส่ access token ของ Line Bot
+        access_token = 'eCHAMEnV79yzqN525UmdG2dHwnEEiVcd148a601LlX/pYL2qQEjaNcuWPIUd9Qs2I/fIpCTOHLDduCINBUCGwzzi7fDSNg10MDWqn8twIhG6aO2ioaze5Q4Ma1CuEHn/wyGmNXvqaZZJwswFumNf9wdB04t89/1O/w1cDnyilFU='  # ใส่ access token ของ Line Bot
         secret = 'dd1ed20330791ca4762c5910ab155d57'
         line_bot_api = LineBotApi(access_token)
         handler = WebhookHandler(secret)
