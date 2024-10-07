@@ -237,7 +237,6 @@ def scrape_fantasy_books(url):
     soup = BeautifulSoup(response.text, 'html.parser')
 
     books = []
-    scraped_text = ""
     
     # ดึงข้อมูลหนังสือที่ต้องการ
     for book_item in soup.select('.item-details')[:5]:  
@@ -248,15 +247,122 @@ def scrape_fantasy_books(url):
         author = author_tag.get_text(strip=True) if author_tag else "ไม่มีผู้แต่ง"
         product_item_div = book_item.parent  
         price = product_item_div.get('data-price', 'ไม่ระบุ')
+        
+        # ดึง img_url ด้วย
+        img_tag = book_item.parent.select_one('.item-img-block img')
+        img_url = img_tag.get('data-src') or img_tag.get('src') if img_tag else "https://via.placeholder.com/200"
+
         rating_tag = book_item.find('span', class_='vote-scores')
         rating = rating_tag.text.strip() if rating_tag and rating_tag.text else 'ไม่มีคะแนน'
 
-        # เก็บข้อมูลแต่ละหนังสือ
-        book_info = f"ชื่อหนังสือ: {title}\nผู้แต่ง: {author}\nราคา: {price}\nคะแนน: {rating}\nURL: {product_url}\n\n"
-        scraped_text += book_info
+        # เก็บข้อมูลแต่ละหนังสือในรูปแบบ dict
+        books.append({
+            "title": title,
+            "author": author,
+            "price": price,
+            "rating": rating,
+            "product_url": product_url,
+            "img_url": img_url  # เพิ่มการเก็บ img_url
+        })
     
-    # ส่งข้อมูลทั้งหมดกลับไปยังผู้ใช้
-    return scraped_text
+    # ส่งข้อมูลทั้งหมดกลับไป
+    return books
+
+
+from linebot.models import FlexSendMessage
+
+def create_fantasy_flex_message(books):
+    bubbles = []
+    for book in books:
+        bubble = {
+            "type": "bubble",
+            "hero": {
+                "type": "image",
+                "url": book['img_url'],  # ใช้ img_url ที่ดึงมาได้
+                "size": "full",
+                "aspectRatio": "20:13",
+                "aspectMode": "cover"
+            },
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": book['title'],
+                        "weight": "bold",
+                        "size": "md",
+                        "wrap": True
+                    },
+                    {
+                        "type": "box",
+                        "layout": "baseline",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": f"ผู้แต่ง: {book['author']}",
+                                "size": "sm",
+                                "color": "#999999",
+                                "wrap": True
+                            }
+                        ]
+                    },
+                    {
+                        "type": "box",
+                        "layout": "baseline",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": f"ราคา: {book['price']}",
+                                "weight": "bold",
+                                "size": "md",
+                                "color": "#1DB446",
+                                "wrap": True
+                            }
+                        ]
+                    },
+                    {
+                        "type": "box",
+                        "layout": "baseline",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": f"คะแนน: {book['rating']}",
+                                "size": "sm",
+                                "color": "#FFCC00",
+                                "wrap": True
+                            }
+                        ]
+                    }
+                ]
+            },
+            "footer": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {
+                        "type": "button",
+                        "style": "primary",
+                        "action": {
+                            "type": "uri",
+                            "label": "ดูสินค้า",
+                            "uri": book['product_url']
+                        }
+                    }
+                ]
+            }
+        }
+        bubbles.append(bubble)
+    
+    carousel = {
+        "type": "carousel",
+        "contents": bubbles
+    }
+    flex_message = FlexSendMessage(alt_text="หนังสือแฟนตาซีที่ค้นพบ", contents=carousel)
+    
+    return flex_message
+
+
 
 # ฟังก์ชันดึง URL จากชื่อหนังสือ
 def get_book_url_by_title(book_title):
@@ -383,9 +489,9 @@ def compute_response(sentence, user_id):
         if books:
             flex_message = create_flex_message(books)
             flex_message.quick_reply = create_quick_reply()
-            bot_response = f"พบหนังสือที่เกี่ยวกับ {keyword}"
+            bot_response = f"พบหนังสือที่เกี่ยวกับ {keyword} มีดังนี้ครับ"
             store_chat_history_and_keyword(user_id, sentence, bot_response, keyword, scraped_text)
-            return flex_message
+            return [TextSendMessage(text=bot_response),flex_message]
         else:
             bot_response = "ไม่พบข้อมูลหนังสือที่ค้นหา"
             store_chat_history_and_keyword(user_id, sentence, bot_response, keyword, "")
@@ -411,15 +517,31 @@ def compute_response(sentence, user_id):
     elif sentence.startswith("แฟนตาซี"):
         url = "https://www.naiin.com/category?category_1_code=2&product_type_id=1&categoryLv2Code=86"
         scraped_books = scrape_fantasy_books(url)
-        return TextSendMessage(text=scraped_books)
+    
+        if scraped_books:
+            flex_message = create_fantasy_flex_message(scraped_books)
+            return flex_message
+        else:
+            return TextSendMessage(text="ไม่พบข้อมูลหนังสือแฟนตาซีที่ค้นหา")
+        
     elif sentence.startswith("สืบสวน"):
         url = "https://www.naiin.com/category?category_1_code=2&product_type_id=1&categoryLv2Code=8"
         scraped_books = scrape_fantasy_books(url)
-        return TextSendMessage(text=scraped_books)
+    
+        if scraped_books:
+            flex_message = create_fantasy_flex_message(scraped_books)
+            return flex_message
+        else:
+            return TextSendMessage(text="ไม่พบข้อมูลหนังสือแฟนตาซีที่ค้นหา")
     elif sentence.startswith("ไลท์โนเวล"):
         url = "https://www.naiin.com/category?category_1_code=2&product_type_id=1&categoryLv2Code=134"
         scraped_books = scrape_fantasy_books(url)
-        return TextSendMessage(text=scraped_books)
+    
+        if scraped_books:
+            flex_message = create_fantasy_flex_message(scraped_books)
+            return flex_message
+        else:
+            return TextSendMessage(text="ไม่พบข้อมูลหนังสือแฟนตาซีที่ค้นหา")
 
 
     elif intent == "เรียงตามคะแนน":
