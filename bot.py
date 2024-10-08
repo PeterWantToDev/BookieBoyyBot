@@ -558,15 +558,15 @@ def compute_response(sentence, user_id):
         return TextSendMessage(text=bot_response, quick_reply=quick_reply)
     elif sentence.startswith("จิตวิทยา,การพัฒนาตัวเอง"):
         quick_reply = quick_reply_n2()
-        bot_response = "สนใจนิยายแบบไหนเป็นพิเศษครับ"
+        bot_response = "สสนใจเป็นจิตวิทยาหรือการพัฒนาตนเองครับ"
         return TextSendMessage(text=bot_response, quick_reply=quick_reply)
-    elif sentence.startswith("จิตวิทยา,การพัฒนาตัวเอง"):
+    elif sentence.startswith("วรรณกรรม"):
         quick_reply = quick_reply_n3()
-        bot_response = "สนใจนิยายแบบไหนเป็นพิเศษครับ"
+        bot_response = "สนใจงานเขียนประเภทไหนครับ"
         return TextSendMessage(text=bot_response, quick_reply=quick_reply)
     elif sentence.startswith("คอมพิวเตอร์"):
         quick_reply = quick_reply_n4()
-        bot_response = "สนใจนิยายแบบไหนเป็นพิเศษครับ"
+        bot_response = "สนใจประเภทไหนเป็นพิเศษไหมครับ"
         return TextSendMessage(text=bot_response, quick_reply=quick_reply)
     
     elif sentence.startswith("แฟนตาซี"):
@@ -596,6 +596,55 @@ def compute_response(sentence, user_id):
             return flex_message
         else:
             return TextSendMessage(text="ไม่พบข้อมูลหนังสือแฟนตาซีที่ค้นหา")
+
+    elif sentence.startswith("การพัฒนาตนเอง"):
+        url = "https://www.naiin.com/category?category_1_code=13&product_type_id=1&categoryLv2Code=139"
+        scraped_books = scrape_fantasy_books(url)
+    
+        if scraped_books:
+            flex_message = create_fantasy_flex_message(scraped_books)
+            return flex_message
+        else:
+            return TextSendMessage(text="ไม่พบข้อมูลหนังสือแฟนตาซีที่ค้นหา")
+    elif sentence.startswith("จิตวิทยา"):
+        url = "https://www.naiin.com/category?category_1_code=13&product_type_id=1&categoryLv2Code=63"
+        scraped_books = scrape_fantasy_books(url)
+    
+        if scraped_books:
+            flex_message = create_fantasy_flex_message(scraped_books)
+            return flex_message
+        else:
+            return TextSendMessage(text="ไม่พบข้อมูลหนังสือแฟนตาซีที่ค้นหา")
+
+    elif sentence.startswith("ไม่มี"):
+        url = "https://www.naiin.com/category?category_1_code=16&product_type_id=1"
+        scraped_books = scrape_fantasy_books(url)
+    
+        if scraped_books:
+            flex_message = create_fantasy_flex_message(scraped_books)
+            return flex_message
+        else:
+            return TextSendMessage(text="ไม่พบข้อมูลหนังสือแฟนตาซีที่ค้นหา")
+
+    elif sentence.startswith("เรื่องสั้น"):
+        url = "https://www.naiin.com/category?category_1_code=33&product_type_id=1&categoryLv2Code=1"
+        scraped_books = scrape_fantasy_books(url)
+    
+        if scraped_books:
+            flex_message = create_fantasy_flex_message(scraped_books)
+            return flex_message
+        else:
+            return TextSendMessage(text="ไม่พบข้อมูลหนังสือแฟนตาซีที่ค้นหา")
+    elif sentence.startswith("วรรณคดีไทย"):
+        url = "https://www.naiin.com/category?category_1_code=33&product_type_id=1&categoryLv2Code=159"
+        scraped_books = scrape_fantasy_books(url)
+    
+        if scraped_books:
+            flex_message = create_fantasy_flex_message(scraped_books)
+            return flex_message
+        else:
+            return TextSendMessage(text="ไม่พบข้อมูลหนังสือแฟนตาซีที่ค้นหา")
+
 
     elif intent == "สวัสดี":
         quick_reply = quick_reply_greeting()
@@ -631,12 +680,20 @@ def compute_response(sentence, user_id):
     elif intent == "หนังสือมาใหม่ช่วงนี้":
         url = "https://www.naiin.com/category?type_book=new_arrival&product_type_id=1"
         scraped_books = scrape_fantasy_books(url)
-        return TextSendMessage(text=scraped_books)
+        if scraped_books:
+            flex_message = create_fantasy_flex_message(scraped_books)
+            return flex_message
+        else:
+            return TextSendMessage(text="ไม่พบข้อมูลหนังสือแฟนตาซีที่ค้นหา")
 
     elif intent == "หนังสือขายดีช่วงนี้":
         url = "https://www.naiin.com/category?type_book=best_seller&product_type_id=1"
         scraped_books = scrape_fantasy_books(url)
-        return TextSendMessage(text=scraped_books)
+        if scraped_books:
+            flex_message = create_fantasy_flex_message(scraped_books)
+            return flex_message
+        else:
+            return TextSendMessage(text="ไม่พบข้อมูลหนังสือแฟนตาซีที่ค้นหา")
 
     elif intent == "เรียงตามราคา":
         last_keyword = get_last_keyword(user_id)
